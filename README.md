@@ -1,5 +1,10 @@
-Mycroft [![Build Status](https://travis-ci.org/MycroftAI/mycroft-core.svg?branch=master)](https://travis-ci.org/MycroftAI/mycroft-core) [![Coverage Status](https://coveralls.io/repos/github/MycroftAI/mycroft-core/badge.svg?branch=dev)](https://coveralls.io/github/MycroftAI/mycroft-core?branch=dev)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE.md) [![CLA](https://img.shields.io/badge/CLA%3F-Required-blue.svg)](https://mycroft.ai/cla) [![Team](https://img.shields.io/badge/Team-Mycroft_Core-violetblue.svg)](https://github.com/MycroftAI/contributors/blob/master/team/Mycroft%20Core.md) ![Status](https://img.shields.io/badge/-Production_ready-green.svg)
+
+[![Build Status](https://travis-ci.org/MycroftAI/mycroft-core.svg?branch=master)](https://travis-ci.org/MycroftAI/mycroft-core) [![Coverage Status](https://coveralls.io/repos/github/MycroftAI/mycroft-core/badge.svg?branch=dev)](https://coveralls.io/github/MycroftAI/mycroft-core?branch=dev)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+[![Join chat](https://img.shields.io/badge/Mattermost-join_chat-brightgreen.svg)](https://chat.mycroft.ai)
+
+Mycroft
 ==========
 
 Mycroft is a hackable open source voice assistant.
@@ -27,7 +32,7 @@ Mycroft is a hackable open source voice assistant.
 
 First, get the code on your system!  The simplest method is via git ([git installation instructions](https://gist.github.com/derhuerst/1b15ff4652a867391f03)):
 - `cd ~/`
-- `git clone --depth=1 https://github.com/MycroftAI/mycroft-core.git`
+- `git clone https://github.com/MycroftAI/mycroft-core.git`
 - `cd mycroft-core`
 - `bash dev_setup.sh`
 
@@ -37,11 +42,6 @@ This script sets up dependencies and a [virtualenv][about-virtualenv].  If runni
 [about-virtualenv]:https://virtualenv.pypa.io/en/stable/
 
 NOTE: The default branch for this repository is 'dev', which should be considered a work-in-progress. If you want to clone a more stable version, switch over to the 'master' branch.
-NOTE: If you are willing to contribute to this project, clone the entire repository by 
-- `git clone  https://github.com/MycroftAI/mycroft-core.git`
- instead of 
-- `git clone --depth=1 https://github.com/MycroftAI/mycroft-core.git`
-which is said above.
 
 # Running Mycroft
 
@@ -59,7 +59,7 @@ The background services can be stopped as a group with:
 ## *Home* Device and Account Manager
 Mycroft AI, Inc. maintains a device and account management system known as Mycroft Home. Developers may sign up at: https://home.mycroft.ai
 
-By default, mycroft-core  is configured to use Home. By saying "Hey Mycroft, pair my device" (or any other request verbal request) you will be informed that your device needs to be paired. Mycroft will speak a 6-digit code which you can entered into the pairing page within the [Mycroft Home site](https://home.mycroft.ai).
+By default, mycroft-core  is configured to use Home. By saying "Hey Mycroft, pair my device" (or any other request verbal request) you will be informed that your device needs to be paired. Mycroft will speak a 6-digit code which you can enter into the pairing page within the [Mycroft Home site](https://home.mycroft.ai).
 
 Once paired, your unit will use Mycroft API keys for services such as Speech-to-Text (STT), weather and various other skills.
 
@@ -84,14 +84,32 @@ When the configuration loader starts, it looks in these locations in this order,
 
 ## Using Mycroft Without Home
 
-If you do not wish to use the Mycroft Home service, you may insert your own API keys into the configuration files listed below in <b>configuration</b>.
+If you do not wish to use the Mycroft Home service, before starting Mycroft for the first time, create `$HOME/.mycroft/mycroft.conf` with the following contents:
 
-The place to insert the API key looks like the following:
+```
+{
+  "skills": {
+    "blacklisted_skills": [
+      "mycroft-configuration.mycroftai",
+      "mycroft-pairing.mycroftai"
+    ]
+  }
+}
+```
 
-`[WeatherSkill]`
-`api_key = ""`
+Mycroft will then be unable to perform speech-to-text conversion, so you'll need to set that up as well, using one of the [STT engines Mycroft supports](https://mycroft-ai.gitbook.io/docs/using-mycroft-ai/customizations/stt-engine).
 
-Put a relevant key inside the quotes and mycroft-core should begin to use the key immediately.
+You may insert your own API keys into the configuration files listed above in <b>Configuration</b>.  For example, to insert the API key for the Weather skill, create a new JSON key in the configuration file like so:
+
+```
+{
+  // other configuration settings...
+  //
+  "WeatherSkill": {
+    "api_key": "<insert your API key here>"
+  }
+}
+```
 
 ## API Key Services
 
@@ -138,8 +156,9 @@ say hi in [Mycroft Chat](https://chat.mycroft.ai/) and a team member would be ha
 Join the [Mycroft Forum](https://community.mycroft.ai/) for questions and answers.
 
 # Links
-* [Creating a Skill](https://docs.mycroft.ai/skill.creation)
+* [Creating a Skill](https://mycroft-ai.gitbook.io/docs/skill-development/your-first-skill)
 * [Documentation](https://docs.mycroft.ai)
+* [Skill Writer API Docs](https://mycroft-core.readthedocs.io/en/master/)
 * [Release Notes](https://github.com/MycroftAI/mycroft-core/releases)
 * [Mycroft Chat](https://chat.mycroft.ai)
 * [Mycroft Forum](https://community.mycroft.ai)

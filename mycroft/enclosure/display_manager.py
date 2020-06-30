@@ -37,7 +37,7 @@ from threading import Thread, Timer
 
 import os
 
-from mycroft.messagebus.client.ws import WebsocketClient
+from mycroft.messagebus.client import MessageBusClient
 from mycroft.util import get_ipc_directory
 from mycroft.util.log import LOG
 
@@ -113,7 +113,7 @@ def _read_data():
     return data
 
 
-class DisplayManager():
+class DisplayManager:
     """ The Display manager handles the basic state of the display,
     be it a mark-1 or a mark-2 or even a future Mark-3.
     """
@@ -179,7 +179,7 @@ def init_display_manager_bus_connection():
         display_manager.set_active("wakeword")
         Timer(10, remove_wake_word).start()
 
-    bus = WebsocketClient()
+    bus = MessageBusClient()
     bus.on('recognizer_loop:audio_output_end', set_delay)
     bus.on('recognizer_loop:audio_output_start', set_remove_flag)
     bus.on('recognizer_loop:record_begin', set_wakeword_skill)

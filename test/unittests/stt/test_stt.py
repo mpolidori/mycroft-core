@@ -14,7 +14,7 @@
 #
 import unittest
 
-import mock
+from unittest.mock import MagicMock, patch
 
 import mycroft.stt
 from mycroft.configuration import Configuration
@@ -23,9 +23,9 @@ from test.util import base_config
 
 
 class TestSTT(unittest.TestCase):
-    @mock.patch.object(Configuration, 'get')
+    @patch.object(Configuration, 'get')
     def test_factory(self, mock_get):
-        mycroft.stt.STTApi = mock.MagicMock()
+        mycroft.stt.STTApi = MagicMock()
         config = base_config()
         config.merge(
             {
@@ -35,13 +35,18 @@ class TestSTT(unittest.TestCase):
                     'google': {'credential': {'token': 'FOOBAR'}},
                     'bing': {'credential': {'token': 'FOOBAR'}},
                     'houndify': {'credential': {'client_id': 'FOO',
-                                                "client_key": "BAR"}},
+                                                "client_key": 'BAR'}},
                     'google_cloud': {
                         'credential': {
                             'json': {}
                         }
                     },
-                    'ibm': {'credential': {'token': 'FOOBAR'}},
+                    'ibm': {
+                        'credential': {
+                            'token': 'FOOBAR'
+                        },
+                        'url': 'https://test.com/'
+                    },
                     'kaldi': {'uri': 'https://test.com'},
                     'mycroft': {'uri': 'https://test.com'}
                 },
@@ -50,31 +55,31 @@ class TestSTT(unittest.TestCase):
         mock_get.return_value = config
 
         stt = mycroft.stt.STTFactory.create()
-        self.assertEquals(type(stt), mycroft.stt.MycroftSTT)
+        self.assertEqual(type(stt), mycroft.stt.MycroftSTT)
 
         config['stt']['module'] = 'google'
         stt = mycroft.stt.STTFactory.create()
-        self.assertEquals(type(stt), mycroft.stt.GoogleSTT)
+        self.assertEqual(type(stt), mycroft.stt.GoogleSTT)
 
         config['stt']['module'] = 'google_cloud'
         stt = mycroft.stt.STTFactory.create()
-        self.assertEquals(type(stt), mycroft.stt.GoogleCloudSTT)
+        self.assertEqual(type(stt), mycroft.stt.GoogleCloudSTT)
 
         config['stt']['module'] = 'ibm'
         stt = mycroft.stt.STTFactory.create()
-        self.assertEquals(type(stt), mycroft.stt.IBMSTT)
+        self.assertEqual(type(stt), mycroft.stt.IBMSTT)
 
         config['stt']['module'] = 'kaldi'
         stt = mycroft.stt.STTFactory.create()
-        self.assertEquals(type(stt), mycroft.stt.KaldiSTT)
+        self.assertEqual(type(stt), mycroft.stt.KaldiSTT)
 
         config['stt']['module'] = 'wit'
         stt = mycroft.stt.STTFactory.create()
-        self.assertEquals(type(stt), mycroft.stt.WITSTT)
+        self.assertEqual(type(stt), mycroft.stt.WITSTT)
 
-    @mock.patch.object(Configuration, 'get')
+    @patch.object(Configuration, 'get')
     def test_stt(self, mock_get):
-        mycroft.stt.STTApi = mock.MagicMock()
+        mycroft.stt.STTApi = MagicMock()
         config = base_config()
         config.merge(
             {
@@ -103,9 +108,9 @@ class TestSTT(unittest.TestCase):
         stt = TestSTT()
         self.assertEqual(stt.lang, 'sv')
 
-    @mock.patch.object(Configuration, 'get')
+    @patch.object(Configuration, 'get')
     def test_mycroft_stt(self, mock_get):
-        mycroft.stt.STTApi = mock.MagicMock()
+        mycroft.stt.STTApi = MagicMock()
         config = base_config()
         config.merge(
             {
@@ -118,13 +123,13 @@ class TestSTT(unittest.TestCase):
         mock_get.return_value = config
 
         stt = mycroft.stt.MycroftSTT()
-        audio = mock.MagicMock()
+        audio = MagicMock()
         stt.execute(audio, 'en-us')
         self.assertTrue(mycroft.stt.STTApi.called)
 
-    @mock.patch.object(Configuration, 'get')
+    @patch.object(Configuration, 'get')
     def test_google_stt(self, mock_get):
-        mycroft.stt.Recognizer = mock.MagicMock
+        mycroft.stt.Recognizer = MagicMock
         config = base_config()
         config.merge(
             {
@@ -136,14 +141,14 @@ class TestSTT(unittest.TestCase):
             })
         mock_get.return_value = config
 
-        audio = mock.MagicMock()
+        audio = MagicMock()
         stt = mycroft.stt.GoogleSTT()
         stt.execute(audio)
         self.assertTrue(stt.recognizer.recognize_google.called)
 
-    @mock.patch.object(Configuration, 'get')
+    @patch.object(Configuration, 'get')
     def test_google_cloud_stt(self, mock_get):
-        mycroft.stt.Recognizer = mock.MagicMock
+        mycroft.stt.Recognizer = MagicMock
         config = base_config()
         config.merge(
             {
@@ -159,35 +164,73 @@ class TestSTT(unittest.TestCase):
             })
         mock_get.return_value = config
 
-        audio = mock.MagicMock()
+        audio = MagicMock()
         stt = mycroft.stt.GoogleCloudSTT()
         stt.execute(audio)
         self.assertTrue(stt.recognizer.recognize_google_cloud.called)
 
-    @mock.patch.object(Configuration, 'get')
-    def test_ibm_stt(self, mock_get):
-        mycroft.stt.Recognizer = mock.MagicMock
+    @patch('mycroft.stt.post')
+    @patch.object(Configuration, 'get')
+    def test_ibm_stt(self, mock_get, mock_post):
+        import json
+
         config = base_config()
         config.merge(
             {
                 'stt': {
                     'module': 'ibm',
                     'ibm': {
-                        'credential': {'username': 'FOO', 'password': 'BAR'}
+                        'credential': {
+                            'token': 'FOOBAR'
+                        },
+                        'url': 'https://test.com'
                     },
                 },
                 'lang': 'en-US'
-            })
+            }
+        )
         mock_get.return_value = config
 
-        audio = mock.MagicMock()
+        requests_object = MagicMock()
+        requests_object.status_code = 200
+        requests_object.text = json.dumps({
+            'results': [
+                {
+                    'alternatives': [
+                        {
+                            'confidence': 0.96,
+                            'transcript': 'sample response'
+                        }
+                    ],
+                    'final': True
+                }
+            ],
+            'result_index': 0
+        })
+        mock_post.return_value = requests_object
+
+        audio = MagicMock()
+        audio.sample_rate = 16000
+
         stt = mycroft.stt.IBMSTT()
         stt.execute(audio)
-        self.assertTrue(stt.recognizer.recognize_ibm.called)
 
-    @mock.patch.object(Configuration, 'get')
+        test_url_base = 'https://test.com/v1/recognize'
+        mock_post.assert_called_with(test_url_base,
+                                     auth=('apikey', 'FOOBAR'),
+                                     headers={
+                                         'Content-Type': 'audio/x-flac',
+                                         'X-Watson-Learning-Opt-Out': 'true'
+                                     },
+                                     data=audio.get_flac_data(),
+                                     params={
+                                         'model': 'en-US_BroadbandModel',
+                                         'profanity_filter': 'false'
+                                     })
+
+    @patch.object(Configuration, 'get')
     def test_wit_stt(self, mock_get):
-        mycroft.stt.Recognizer = mock.MagicMock
+        mycroft.stt.Recognizer = MagicMock
         config = base_config()
         config.merge(
             {
@@ -199,15 +242,15 @@ class TestSTT(unittest.TestCase):
             })
         mock_get.return_value = config
 
-        audio = mock.MagicMock()
+        audio = MagicMock()
         stt = mycroft.stt.WITSTT()
         stt.execute(audio)
         self.assertTrue(stt.recognizer.recognize_wit.called)
 
-    @mock.patch('mycroft.stt.post')
-    @mock.patch.object(Configuration, 'get')
+    @patch('mycroft.stt.post')
+    @patch.object(Configuration, 'get')
     def test_kaldi_stt(self, mock_get, mock_post):
-        mycroft.stt.Recognizer = mock.MagicMock
+        mycroft.stt.Recognizer = MagicMock
         config = base_config()
         config.merge(
             {
@@ -219,19 +262,19 @@ class TestSTT(unittest.TestCase):
             })
         mock_get.return_value = config
 
-        kaldiResponse = mock.MagicMock()
+        kaldiResponse = MagicMock()
         kaldiResponse.json.return_value = {
                 'hypotheses': [{'utterance': '     [noise]     text'},
                                {'utterance': '     asdf'}]
         }
         mock_post.return_value = kaldiResponse
-        audio = mock.MagicMock()
+        audio = MagicMock()
         stt = mycroft.stt.KaldiSTT()
-        self.assertEquals(stt.execute(audio), 'text')
+        self.assertEqual(stt.execute(audio), 'text')
 
-    @mock.patch.object(Configuration, 'get')
+    @patch.object(Configuration, 'get')
     def test_bing_stt(self, mock_get):
-        mycroft.stt.Recognizer = mock.MagicMock
+        mycroft.stt.Recognizer = MagicMock
         config = base_config()
         config.merge(
             {
@@ -243,14 +286,14 @@ class TestSTT(unittest.TestCase):
             })
         mock_get.return_value = config
 
-        audio = mock.MagicMock()
+        audio = MagicMock()
         stt = mycroft.stt.BingSTT()
         stt.execute(audio)
         self.assertTrue(stt.recognizer.recognize_bing.called)
 
-    @mock.patch.object(Configuration, 'get')
+    @patch.object(Configuration, 'get')
     def test_houndify_stt(self, mock_get):
-        mycroft.stt.Recognizer = mock.MagicMock
+        mycroft.stt.Recognizer = MagicMock
         config = base_config()
         config.merge(
             {
@@ -264,7 +307,7 @@ class TestSTT(unittest.TestCase):
             })
         mock_get.return_value = config
 
-        audio = mock.MagicMock()
+        audio = MagicMock()
         stt = mycroft.stt.HoundifySTT()
         stt.execute(audio)
         self.assertTrue(stt.recognizer.recognize_houndify.called)

@@ -23,9 +23,9 @@ from mycroft.util.log import LOG
 
 # The following lines are replaced during the release process.
 # START_VERSION_BLOCK
-CORE_VERSION_MAJOR = 18
-CORE_VERSION_MINOR = 8
-CORE_VERSION_BUILD = 2
+CORE_VERSION_MAJOR = 20
+CORE_VERSION_MINOR = 2
+CORE_VERSION_BUILD = 4
 # END_VERSION_BLOCK
 
 CORE_VERSION_TUPLE = (CORE_VERSION_MAJOR,
@@ -34,7 +34,7 @@ CORE_VERSION_TUPLE = (CORE_VERSION_MAJOR,
 CORE_VERSION_STR = '.'.join(map(str, CORE_VERSION_TUPLE))
 
 
-class VersionManager(object):
+class VersionManager:
     @staticmethod
     def get():
         data_dir = expanduser(Configuration.get()['data_dir'])
@@ -45,7 +45,7 @@ class VersionManager(object):
                     return json.load(f)
             except Exception:
                 LOG.error("Failed to load version from '%s'" % version_file)
-        return {"coreVersion": None, "enclosureVersion": None}
+        return {"coreVersion": CORE_VERSION_STR, "enclosureVersion": None}
 
 
 def check_version(version_string):

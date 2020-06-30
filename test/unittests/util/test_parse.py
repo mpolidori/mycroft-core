@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Copyright 2017 Mycroft AI Inc.
 #
@@ -15,14 +14,16 @@
 # limitations under the License.
 #
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from mycroft.util.parse import extract_datetime
-from mycroft.util.parse import extract_number
+from mycroft.util.parse import extract_duration
+from mycroft.util.parse import extract_number, extract_numbers
 from mycroft.util.parse import fuzzy_match
 from mycroft.util.parse import get_gender
 from mycroft.util.parse import match_one
 from mycroft.util.parse import normalize
+from mycroft.util.time import default_timezone
 
 
 class TestFuzzyMatch(unittest.TestCase):
@@ -68,6 +69,9 @@ class TestNormalize(unittest.TestCase):
         self.assertEqual(extract_number("this is the third test"), 1.0 / 3.0)
         self.assertEqual(extract_number("this is the third test",
                                         ordinals=True), 3.0)
+        self.assertEqual(extract_number("the fourth one", ordinals=True), 4.0)
+        self.assertEqual(extract_number("the thirty sixth one",
+                                        ordinals=True), 36.0)
         self.assertEqual(extract_number("this is test number 4"), 4)
         self.assertEqual(extract_number("one third of a cup"), 1.0 / 3.0)
         self.assertEqual(extract_number("three cups"), 3)
@@ -133,6 +137,53 @@ class TestNormalize(unittest.TestCase):
         self.assertTrue(extract_number("grobo 0") is not False)
         self.assertEqual(extract_number("grobo 0"), 0)
 
+        self.assertEqual(extract_number("a couple of beers"), 2)
+        self.assertEqual(extract_number("a couple hundred beers"), 200)
+        self.assertEqual(extract_number("a couple thousand beers"), 2000)
+        self.assertEqual(extract_number("100%"), 100)
+
+    def test_extract_datetime(self):
+        """Check that extract_datetime returns the expected timezone."""
+        tz = default_timezone()
+        dt, _ = extract_datetime("today")
+        self.assertEqual(tz, dt.tzinfo)
+
+    def test_extract_duration_en(self):
+        self.assertEqual(extract_duration("10 seconds"),
+                         (timedelta(seconds=10.0), ""))
+        self.assertEqual(extract_duration("5 minutes"),
+                         (timedelta(minutes=5), ""))
+        self.assertEqual(extract_duration("2 hours"),
+                         (timedelta(hours=2), ""))
+        self.assertEqual(extract_duration("3 days"),
+                         (timedelta(days=3), ""))
+        self.assertEqual(extract_duration("25 weeks"),
+                         (timedelta(weeks=25), ""))
+        self.assertEqual(extract_duration("seven hours"),
+                         (timedelta(hours=7), ""))
+        self.assertEqual(extract_duration("7.5 seconds"),
+                         (timedelta(seconds=7.5), ""))
+        self.assertEqual(extract_duration("eight and a half days thirty"
+                                          " nine seconds"),
+                         (timedelta(days=8.5, seconds=39), ""))
+        self.assertEqual(extract_duration("Set a timer for 30 minutes"),
+                         (timedelta(minutes=30), "set a timer for"))
+        self.assertEqual(extract_duration("Four and a half minutes until"
+                                          " sunset"),
+                         (timedelta(minutes=4.5), "until sunset"))
+        self.assertEqual(extract_duration("Nineteen minutes past the hour"),
+                         (timedelta(minutes=19), "past the hour"))
+        self.assertEqual(extract_duration("wake me up in three weeks, four"
+                                          " hundred ninety seven days, and"
+                                          " three hundred 91.6 seconds"),
+                         (timedelta(weeks=3, days=497, seconds=391.6),
+                             "wake me up in , , and"))
+        self.assertEqual(extract_duration("The movie is one hour, fifty seven"
+                                          " and a half minutes long"),
+                         (timedelta(hours=1, minutes=57.5),
+                             "the movie is ,  long"))
+        self.assertEqual(extract_duration(""), None)
+
     def test_extractdatetime_en(self):
         def extractWithFormat(text):
             date = datetime(2017, 6, 27, 13, 4)  # Tue June 27, 2017 @ 1:04pm
@@ -142,13 +193,87 @@ class TestNormalize(unittest.TestCase):
 
         def testExtract(text, expected_date, expected_leftover):
             res = extractWithFormat(normalize(text))
-            self.assertEqual(res[0], expected_date, "for="+text)
-            self.assertEqual(res[1], expected_leftover, "for="+text)
+            self.assertEqual(res[0], expected_date, "for=" + text)
+            self.assertEqual(res[1], expected_leftover, "for=" + text)
 
+        testExtract("now is the time",
+                    "2017-06-27 13:04:00", "is time")
+        testExtract("in a second",
+                    "2017-06-27 13:04:01", "")
+        testExtract("in a couple of seconds",
+                    "2017-06-27 13:04:02", "")
+        testExtract("in a minute",
+                    "2017-06-27 13:05:00", "")
+        testExtract("in a couple minutes",
+                    "2017-06-27 13:06:00", "")
+        testExtract("in a couple of minutes",
+                    "2017-06-27 13:06:00", "")
+        testExtract("in a couple hours",
+                    "2017-06-27 15:04:00", "")
+        testExtract("in a couple of hours",
+                    "2017-06-27 15:04:00", "")
+        testExtract("in a couple weeks",
+                    "2017-07-11 00:00:00", "")
+        testExtract("in a couple of weeks",
+                    "2017-07-11 00:00:00", "")
+        testExtract("in a couple months",
+                    "2017-08-27 00:00:00", "")
+        testExtract("in a couple years",
+                    "2019-06-27 00:00:00", "")
+        testExtract("in a couple of months",
+                    "2017-08-27 00:00:00", "")
+        testExtract("in a couple of years",
+                    "2019-06-27 00:00:00", "")
+        testExtract("in a decade",
+                    "2027-06-27 00:00:00", "")
+        testExtract("in a couple of decades",
+                    "2037-06-27 00:00:00", "")
+        testExtract("next decade",
+                    "2027-06-27 00:00:00", "")
+        testExtract("in a century",
+                    "2117-06-27 00:00:00", "")
+        testExtract("in a millennium",
+                    "3017-06-27 00:00:00", "")
+        testExtract("in a couple decades",
+                    "2037-06-27 00:00:00", "")
+        testExtract("in 5 decades",
+                    "2067-06-27 00:00:00", "")
+        testExtract("in a couple centuries",
+                    "2217-06-27 00:00:00", "")
+        testExtract("in a couple of centuries",
+                    "2217-06-27 00:00:00", "")
+        testExtract("in 2 centuries",
+                    "2217-06-27 00:00:00", "")
+        testExtract("in a couple millenniums",
+                    "4017-06-27 00:00:00", "")
+        testExtract("in a couple of millenniums",
+                    "4017-06-27 00:00:00", "")
+        testExtract("in an hour",
+                    "2017-06-27 14:04:00", "")
+        testExtract("i want it within the hour",
+                    "2017-06-27 14:04:00", "i want it")
+        testExtract("in 1 second",
+                    "2017-06-27 13:04:01", "")
+        testExtract("in 2 seconds",
+                    "2017-06-27 13:04:02", "")
+        testExtract("Set the ambush in 1 minute",
+                    "2017-06-27 13:05:00", "set ambush")
+        testExtract("Set the ambush for half an hour",
+                    "2017-06-27 13:34:00", "set ambush")
         testExtract("Set the ambush for 5 days from today",
                     "2017-07-02 00:00:00", "set ambush")
+        testExtract("Set the ambush for 5 days from Tuesday",
+                    "2017-07-02 00:00:00", "set ambush")
+        testExtract("Set the ambush for 2 days from next Friday at 0500",
+                    "2017-07-09 05:00:00", "set ambush")
+        testExtract("Describe the ambush 2 days after last Friday at 0500",
+                    "2017-06-25 05:00:00", "describe ambush")
         testExtract("What is the day after tomorrow's weather?",
                     "2017-06-29 00:00:00", "what is weather")
+        testExtract("day after tomorrow",
+                    "2017-06-29 00:00:00", "")
+        testExtract("the day after tomorrow",
+                    "2017-06-29 00:00:00", "")
         testExtract("Remind me at 10:45 pm",
                     "2017-06-27 22:45:00", "remind me")
         testExtract("what is the weather on friday morning",
@@ -191,6 +316,10 @@ class TestNormalize(unittest.TestCase):
                     "2017-06-27 19:00:00", "remind me to call mom")
         testExtract("remind me to call mom at 7 o'clock in the morning",
                     "2017-06-28 07:00:00", "remind me to call mom")
+        testExtract("remind me to call mom at 7:00 in the morning",
+                    "2017-06-28 07:00:00", "remind me to call mom")
+        testExtract("7 in the morning",
+                    "2017-06-28 07:00:00", "")
         testExtract("remind me to call mom Thursday evening at 7 o'clock",
                     "2017-06-29 19:00:00", "remind me to call mom")
         testExtract("remind me to call mom Thursday morning at 7 o'clock",
@@ -235,20 +364,24 @@ class TestNormalize(unittest.TestCase):
                     "2022-06-27 00:00:00", "play happy birthday music")
         testExtract("Skype Mom at 12:45 pm next Thursday",
                     "2017-07-06 12:45:00", "skype mom")
+        testExtract("What's the weather next Wednesday?",
+                    "2017-07-05 00:00:00", "what weather")
         testExtract("What's the weather next Thursday?",
                     "2017-07-06 00:00:00", "what weather")
+        testExtract("What's the weather next Friday?",
+                    "2017-06-30 00:00:00", "what weather")
         testExtract("what is the weather next friday morning",
-                    "2017-07-07 08:00:00", "what is weather")
+                    "2017-06-30 08:00:00", "what is weather")
         testExtract("what is the weather next friday evening",
-                    "2017-07-07 19:00:00", "what is weather")
+                    "2017-06-30 19:00:00", "what is weather")
         testExtract("what is the weather next friday afternoon",
-                    "2017-07-07 15:00:00", "what is weather")
+                    "2017-06-30 15:00:00", "what is weather")
         testExtract("remind me to call mom on august 3rd",
                     "2017-08-03 00:00:00", "remind me to call mom")
         testExtract("Buy fireworks on the 4th of July",
                     "2017-07-04 00:00:00", "buy fireworks")
         testExtract("what is the weather 2 weeks from next friday",
-                    "2017-07-21 00:00:00", "what is weather")
+                    "2017-07-14 00:00:00", "what is weather")
         testExtract("what is the weather wednesday at 0700 hours",
                     "2017-06-28 07:00:00", "what is weather")
         testExtract("set an alarm wednesday at 7 o'clock",
@@ -273,6 +406,8 @@ class TestNormalize(unittest.TestCase):
                     "2017-06-29 00:00:00", "begin invasion")
         testExtract("Begin the invasion on Thursday at 0500",
                     "2017-06-29 05:00:00", "begin invasion")
+        testExtract("Begin the invasion at 0500 one day after Monday",
+                    "2017-07-04 05:00:00", "begin invasion")
         testExtract("remind me to wake up in 4 years",
                     "2021-06-27 00:00:00", "remind me to wake up")
         testExtract("remind me to wake up in 4 years and 4 days",
@@ -305,6 +440,8 @@ class TestNormalize(unittest.TestCase):
                     "2017-06-28 20:00:00", "set alarm")
         testExtract("set an alarm for wednesday at 3 o'clock in the afternoon",
                     "2017-06-28 15:00:00", "set alarm")
+        testExtract("set an alarm for wednesday at 3:00 in the afternoon",
+                    "2017-06-28 15:00:00", "set alarm")
         testExtract("set an alarm for wednesday at 3 o'clock in the morning",
                     "2017-06-28 03:00:00", "set alarm")
         testExtract("set an alarm for wednesday morning at 7 o'clock",
@@ -313,13 +450,31 @@ class TestNormalize(unittest.TestCase):
                     "2017-06-27 19:00:00", "set alarm")
         testExtract("set an alarm for this evening at 7 o'clock",
                     "2017-06-27 19:00:00", "set alarm")
+        testExtract("set an alarm for 7:00 in the evening",
+                    "2017-06-27 19:00:00", "set alarm")
+        testExtract("set an alarm for 7:00 this evening",
+                    "2017-06-27 19:00:00", "set alarm")
         # TODO: This test is imperfect due to the "at 7:00" still in the
         #       remainder.  But let it pass for now since time is correct
         testExtract("set an alarm for this evening at 7:00",
                     "2017-06-27 19:00:00", "set alarm at 7:00")
+        testExtract("set an alarm for 7:00 this afternoon",
+                    "2017-06-27 19:00:00", "set alarm")
+        testExtract("set an alarm for 7:00 this morning",
+                    "2017-06-27 07:00:00", "set alarm")
+        testExtract("set an alarm for 7:00 at night",
+                    "2017-06-27 19:00:00", "set alarm")
+        testExtract("set an alarm for 4:00 at night",
+                    "2017-06-27 16:00:00", "set alarm")
         testExtract("on the evening of june 5th 2017 remind me to" +
                     " call my mother",
                     "2017-06-05 19:00:00", "remind me to call my mother")
+        testExtract("on the evening of aug 5th 2017 remind me to" +
+                    " call my mother",
+                    "2017-08-05 19:00:00", "remind me to call my mother")
+        testExtract("on the evening of 5 august 2017 remind me to" +
+                    " call my mother",
+                    "2017-08-05 19:00:00", "remind me to call my mother")
         # TODO: This test is imperfect due to the missing "for" in the
         #       remainder.  But let it pass for now since time is correct
         testExtract("update my calendar for a morning meeting with julius" +
@@ -340,6 +495,8 @@ class TestNormalize(unittest.TestCase):
                     "2017-09-27 00:00:00", "remind me to call mom")
         testExtract("remind me to call mom in 2 years and 2 days",
                     "2019-06-29 00:00:00", "remind me to call mom")
+        testExtract("i should have called mom last week",
+                    "2017-06-20 00:00:00", "i should have called mom")
         testExtract("remind me to call mom next week",
                     "2017-07-04 00:00:00", "remind me to call mom")
         testExtract("remind me to call mom at 10am on saturday",
@@ -347,9 +504,38 @@ class TestNormalize(unittest.TestCase):
         testExtract("remind me to call mom at 10am this saturday",
                     "2017-07-01 10:00:00", "remind me to call mom")
         testExtract("remind me to call mom at 10 next saturday",
-                    "2017-07-08 10:00:00", "remind me to call mom")
+                    "2017-07-01 10:00:00", "remind me to call mom")
         testExtract("remind me to call mom at 10am next saturday",
-                    "2017-07-08 10:00:00", "remind me to call mom")
+                    "2017-07-01 10:00:00", "remind me to call mom")
+        testExtract("i should have called mom last month",
+                    "2017-05-27 00:00:00", "i should have called mom")
+        testExtract("remind me to call mom next month",
+                    "2017-07-27 00:00:00", "remind me to call mom")
+        testExtract("i should have called mom last year",
+                    "2016-06-27 00:00:00", "i should have called mom")
+        testExtract("remind me to call mom next year",
+                    "2018-06-27 00:00:00", "remind me to call mom")
+        # Below two tests, ensure that time is picked
+        # even if no am/pm is specified
+        # in case of weekdays/tonight
+        testExtract("set alarm for 9 on weekdays",
+                    "2017-06-27 21:00:00", "set alarm weekdays")
+        testExtract("for 8 tonight",
+                    "2017-06-27 20:00:00", "")
+        testExtract("for 8:30pm tonight",
+                    "2017-06-27 20:30:00", "")
+        # Tests a time with ':' & without am/pm
+        testExtract("set an alarm for tonight 9:30",
+                    "2017-06-27 21:30:00", "set alarm")
+        testExtract("set an alarm at 9:00 for tonight",
+                    "2017-06-27 21:00:00", "set alarm")
+        # Check if it picks the intent irrespective of correctness
+        testExtract("set an alarm at 9 o'clock for tonight",
+                    "2017-06-27 21:00:00", "set alarm")
+        testExtract("remind me about the game tonight at 11:30",
+                    "2017-06-27 23:30:00", "remind me about game")
+        testExtract("set alarm at 7:30 on weekdays",
+                    "2017-06-27 19:30:00", "set alarm on weekdays")
 
     def test_extract_ambiguous_time_en(self):
         morning = datetime(2017, 6, 27, 8, 1, 2)
@@ -365,6 +551,19 @@ class TestNormalize(unittest.TestCase):
             extract_datetime('feed fish at 10 o\'clock', evening)[0],
             datetime(2017, 6, 27, 22, 0, 0))
 
+    def test_extract_date_with_may_I_en(self):
+        now = datetime(2019, 7, 4, 8, 1, 2)
+        may_date = datetime(2019, 5, 2, 10, 11, 20)
+        self.assertEqual(
+            extract_datetime('May I know what time it is tomorrow', now)[0],
+            datetime(2019, 7, 5, 0, 0, 0))
+        self.assertEqual(
+            extract_datetime('May I when 10 o\'clock is', now)[0],
+            datetime(2019, 7, 4, 10, 0, 0))
+        self.assertEqual(
+            extract_datetime('On 24th of may I want a reminder', may_date)[0],
+            datetime(2019, 5, 24, 0, 0, 0))
+
     def test_extract_relativedatetime_en(self):
         def extractWithFormat(text):
             date = datetime(2017, 6, 27, 10, 1, 2)
@@ -374,8 +573,8 @@ class TestNormalize(unittest.TestCase):
 
         def testExtract(text, expected_date, expected_leftover):
             res = extractWithFormat(normalize(text))
-            self.assertEqual(res[0], expected_date, "for="+text)
-            self.assertEqual(res[1], expected_leftover, "for="+text)
+            self.assertEqual(res[0], expected_date, "for=" + text)
+            self.assertEqual(res[1], expected_leftover, "for=" + text)
 
         testExtract("lets meet in 5 minutes",
                     "2017-06-27 10:06:02", "lets meet")
@@ -421,6 +620,57 @@ class TestNormalize(unittest.TestCase):
                          "that is 15 16 17")
         self.assertEqual(normalize("that's eighteen nineteen twenty"),
                          "that is 18 19 20")
+        self.assertEqual(normalize("that's one nineteen twenty two"),
+                         "that is 1 19 20 2")
+        self.assertEqual(normalize("that's one hundred"),
+                         "that is 1 hundred")
+        self.assertEqual(normalize("that's one two twenty two"),
+                         "that is 1 2 20 2")
+        self.assertEqual(normalize("that's one and a half"),
+                         "that is 1 and half")
+        self.assertEqual(normalize("that's one and a half and five six"),
+                         "that is 1 and half and 5 6")
+
+    def test_multiple_numbers(self):
+        self.assertEqual(extract_numbers("this is a one two three  test"),
+                         [1.0, 2.0, 3.0])
+        self.assertEqual(extract_numbers("it's  a four five six  test"),
+                         [4.0, 5.0, 6.0])
+        self.assertEqual(extract_numbers("this is a ten eleven twelve  test"),
+                         [10.0, 11.0, 12.0])
+        self.assertEqual(extract_numbers("this is a one twenty one  test"),
+                         [1.0, 21.0])
+        self.assertEqual(extract_numbers("1 dog, seven pigs, macdonald had a "
+                                         "farm, 3 times 5 macarena"),
+                         [1, 7, 3, 5])
+        self.assertEqual(extract_numbers("two beers for two bears"),
+                         [2.0, 2.0])
+        self.assertEqual(extract_numbers("twenty 20 twenty"),
+                         [20, 20, 20])
+        self.assertEqual(extract_numbers("twenty 20 22"),
+                         [20.0, 20.0, 22.0])
+        self.assertEqual(extract_numbers("twenty twenty two twenty"),
+                         [20, 22, 20])
+        self.assertEqual(extract_numbers("twenty 2"),
+                         [22.0])
+        self.assertEqual(extract_numbers("twenty 20 twenty 2"),
+                         [20, 20, 22])
+        self.assertEqual(extract_numbers("third one"),
+                         [1 / 3, 1])
+        self.assertEqual(extract_numbers("third one", ordinals=True), [3])
+        self.assertEqual(extract_numbers("six trillion", short_scale=True),
+                         [6e12])
+        self.assertEqual(extract_numbers("six trillion", short_scale=False),
+                         [6e18])
+        self.assertEqual(extract_numbers("two pigs and six trillion bacteria",
+                                         short_scale=True), [2, 6e12])
+        self.assertEqual(extract_numbers("two pigs and six trillion bacteria",
+                                         short_scale=False), [2, 6e18])
+        self.assertEqual(extract_numbers("thirty second or first",
+                                         ordinals=True), [32, 1])
+        self.assertEqual(extract_numbers("this is a seven eight nine and a"
+                                         " half test"),
+                         [7.0, 8.0, 9.5])
 
     def test_contractions(self):
         self.assertEqual(normalize("ain't"), "is not")
@@ -577,7 +827,7 @@ class TestNormalize(unittest.TestCase):
 
     def test_gender(self):
         self.assertEqual(get_gender("person"),
-                         False)
+                         None)
 
 
 if __name__ == "__main__":

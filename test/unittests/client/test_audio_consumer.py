@@ -18,7 +18,9 @@ import speech_recognition
 from os.path import dirname, join
 from speech_recognition import WavFile, AudioData
 
-from mycroft.client.speech.listener import AudioConsumer, RecognizerLoop
+from mycroft.client.speech.listener import (AudioConsumer, RecognizerLoop,
+                                            AUDIO_DATA, STREAM_START,
+                                            STREAM_DATA, STREAM_STOP)
 from mycroft.stt import MycroftSTT
 from queue import Queue
 
@@ -75,7 +77,7 @@ class AudioConsumerTest(unittest.TestCase):
         return
 
         audio = self.__create_sample_from_test_file('weather_mycroft')
-        self.queue.put(audio)
+        self.queue.put((AUDIO_DATA, audio))
         tolerance = 4000
         ideal_begin = 70000
         ideal_end = 92000
@@ -106,7 +108,9 @@ class AudioConsumerTest(unittest.TestCase):
 
     @unittest.skip('Disabled while unittests are brought upto date')
     def test_wakeword_in_beginning(self):
-        self.queue.put(self.__create_sample_from_test_file('weather_mycroft'))
+        tag = AUDIO_DATA
+        data = self.__create_sample_from_test_file('weather_mycroft')
+        self.queue.put((tag, data))
         self.recognizer.set_transcriptions(["what's the weather next week"])
         monitor = {}
 
@@ -119,11 +123,12 @@ class AudioConsumerTest(unittest.TestCase):
         utterances = monitor.get('utterances')
         self.assertIsNotNone(utterances)
         self.assertTrue(len(utterances) == 1)
-        self.assertEquals("what's the weather next week", utterances[0])
+        self.assertEqual("what's the weather next week", utterances[0])
 
     @unittest.skip('Disabled while unittests are brought upto date')
     def test_wakeword(self):
-        self.queue.put(self.__create_sample_from_test_file('mycroft'))
+        self.queue.put((AUDIO_DATA,
+                        self.__create_sample_from_test_file('mycroft')))
         self.recognizer.set_transcriptions(["silence"])
         monitor = {}
 
@@ -136,10 +141,11 @@ class AudioConsumerTest(unittest.TestCase):
         utterances = monitor.get('utterances')
         self.assertIsNotNone(utterances)
         self.assertTrue(len(utterances) == 1)
-        self.assertEquals("silence", utterances[0])
+        self.assertEqual("silence", utterances[0])
 
     def test_ignore_wakeword_when_sleeping(self):
-        self.queue.put(self.__create_sample_from_test_file('mycroft'))
+        self.queue.put((AUDIO_DATA,
+                        self.__create_sample_from_test_file('mycroft')))
         self.recognizer.set_transcriptions(["not detected"])
         self.loop.sleep()
         monitor = {}
@@ -153,17 +159,21 @@ class AudioConsumerTest(unittest.TestCase):
         self.assertTrue(self.loop.state.sleeping)
 
     def test_wakeup(self):
-        self.queue.put(self.__create_sample_from_test_file('mycroft_wakeup'))
+        tag = AUDIO_DATA
+        data = self.__create_sample_from_test_file('mycroft_wakeup')
+        self.queue.put((tag, data))
         self.loop.sleep()
         self.consumer.read()
         self.assertFalse(self.loop.state.sleeping)
 
     @unittest.skip('Disabled while unittests are brought upto date')
     def test_stop(self):
-        self.queue.put(self.__create_sample_from_test_file('mycroft'))
+        self.queue.put((AUDIO_DATA,
+                        self.__create_sample_from_test_file('mycroft')))
         self.consumer.read()
 
-        self.queue.put(self.__create_sample_from_test_file('stop'))
+        self.queue.put((AUDIO_DATA,
+                        self.__create_sample_from_test_file('stop')))
         self.recognizer.set_transcriptions(["stop"])
         monitor = {}
 
@@ -176,14 +186,16 @@ class AudioConsumerTest(unittest.TestCase):
         utterances = monitor.get('utterances')
         self.assertIsNotNone(utterances)
         self.assertTrue(len(utterances) == 1)
-        self.assertEquals("stop", utterances[0])
+        self.assertEqual("stop", utterances[0])
 
     @unittest.skip('Disabled while unittests are brought upto date')
     def test_record(self):
-        self.queue.put(self.__create_sample_from_test_file('mycroft'))
+        self.queue.put((AUDIO_DATA,
+                        self.__create_sample_from_test_file('mycroft')))
         self.consumer.read()
 
-        self.queue.put(self.__create_sample_from_test_file('record'))
+        self.queue.put((AUDIO_DATA,
+                        self.__create_sample_from_test_file('record')))
         self.recognizer.set_transcriptions(["record"])
         monitor = {}
 
@@ -196,4 +208,4 @@ class AudioConsumerTest(unittest.TestCase):
         utterances = monitor.get('utterances')
         self.assertIsNotNone(utterances)
         self.assertTrue(len(utterances) == 1)
-        self.assertEquals("record", utterances[0])
+        self.assertEqual("record", utterances[0])

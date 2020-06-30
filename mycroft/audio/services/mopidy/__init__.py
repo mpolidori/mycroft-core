@@ -17,7 +17,7 @@ import time
 
 from os.path import dirname, abspath
 
-from mycroft.audio.services import AudioBackend
+from mycroft.audio.services import RemoteAudioBackend
 from mycroft.messagebus.message import Message
 from mycroft.util.log import LOG
 
@@ -26,7 +26,7 @@ sys.path.append(abspath(dirname(__file__)))
 Mopidy = __import__('mopidypost').Mopidy
 
 
-class MopidyService(AudioBackend):
+class MopidyService(RemoteAudioBackend):
     def _connect(self, message):
         """
             Callback method to connect to mopidy if server is not available
@@ -37,7 +37,7 @@ class MopidyService(AudioBackend):
             url = self.config.get('url', url)
         try:
             self.mopidy = Mopidy(url)
-        except:
+        except Exception:
             if self.connection_attempts < 1:
                 LOG.debug('Could not connect to server, will retry quietly')
             self.connection_attempts += 1

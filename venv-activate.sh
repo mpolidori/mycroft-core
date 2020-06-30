@@ -51,11 +51,11 @@ function main() {
        esac
     done
 
-    if [ "$0" == "$BASH_SOURCE" ] ; then
+    if [[ "$0" == "$BASH_SOURCE" ]] ; then
         # Prevent running in script then exiting immediately
         echo "ERROR: Invoke with 'source venv-activate.sh' or '. venv-activate.sh'"
     else
-        local SRC_DIR="$( cd "$( dirname "${BASH_SOURCE}" )" ; pwd -P )"
+        local SRC_DIR="$( builtin cd "$( dirname "${BASH_SOURCE}" )" ; pwd -P )"
         source ${SRC_DIR}/.venv/bin/activate
         
         # Provide an easier to find "mycroft-" prefixed command.

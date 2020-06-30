@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-import subprocess
+import signal
 from time import sleep
 
 from mycroft.audio.services import AudioBackend
@@ -20,6 +20,7 @@ from mycroft.messagebus.message import Message
 from mycroft.util.log import LOG
 from mycroft.util import play_mp3, play_ogg, play_wav
 import mimetypes
+import re
 from requests import Session
 
 
@@ -31,6 +32,9 @@ def find_mime(path):
             mime = response.headers['content-type']
     if not mime:
         mime = mimetypes.guess_type(path)[0]
+    # Remove any http address arguments
+    if not mime:
+        mime = mimetypes.guess_type(re.sub(r'\?.*$', '', path))[0]
 
     if mime:
         return mime.split('/')
@@ -45,14 +49,14 @@ class SimpleAudioService(AudioBackend):
     """
 
     def __init__(self, config, bus, name='simple'):
-
-        super(SimpleAudioService, self).__init__(config, bus)
+        super().__init__(config, bus)
         self.config = config
         self.process = None
         self.bus = bus
         self.name = name
         self._stop_signal = False
         self._is_playing = False
+        self._paused = False
         self.tracks = []
         self.index = 0
         self.supports_mime_hints = True
@@ -76,8 +80,13 @@ class SimpleAudioService(AudioBackend):
             as basic play/stop.
         """
         LOG.info('SimpleAudioService._play')
+
+        # Stop any existing audio playback
+        self._stop_running_process()
+
         repeat = message.data.get('repeat', False)
         self._is_playing = True
+        self._paused = False
         if isinstance(self.tracks[self.index], list):
             track = self.tracks[self.index][0]
             mime = self.tracks[self.index][1]
@@ -85,6 +94,8 @@ class SimpleAudioService(AudioBackend):
         else:  # Assume string
             track = self.tracks[self.index]
             mime = find_mime(track)
+        LOG.debug('Mime info: {}'.format(mime))
+
         # Indicate to audio service which track is being played
         if self._track_start_callback:
             self._track_start_callback(track)
@@ -104,27 +115,33 @@ class SimpleAudioService(AudioBackend):
         except FileNotFoundError as e:
             LOG.error('Couldn\'t play audio, {}'.format(repr(e)))
             self.process = None
+        except Exception as e:
+            LOG.exception(repr(e))
+            self.process = None
 
         # Wait for completion or stop request
-        while (self.process and self.process.poll() is None and
-                not self._stop_signal):
+        while (self._is_process_running() and not self._stop_signal):
             sleep(0.25)
 
         if self._stop_signal:
-            self.process.terminate()
-            self.process = None
+            self._stop_running_process()
             self._is_playing = False
+            self._paused = False
             return
+        else:
+            self.process = None
 
-        self.index += 1
         # if there are more tracks available play next
+        self.index += 1
         if self.index < len(self.tracks) or repeat:
             if self.index >= len(self.tracks):
                 self.index = 0
             self.bus.emit(Message('SimpleAudioServicePlay',
                                   {'repeat': repeat}))
         else:
+            self._track_start_callback(None)
             self._is_playing = False
+            self._paused = False
 
     def play(self, repeat=False):
         LOG.info('Call SimpleAudioServicePlay')
@@ -138,24 +155,73 @@ class SimpleAudioService(AudioBackend):
             sleep(0.1)
         self._stop_signal = False
 
+    def _pause(self):
+        """ Pauses playback if possible.
+
+            Returns: (bool) New paused status:
+        """
+        if self.process:
+            # Suspend the playback process
+            self.process.send_signal(signal.SIGSTOP)
+            return True  # After pause the service is paused
+        else:
+            return False
+
     def pause(self):
-        pass
+        if not self._paused:
+            self._paused = self._pause()
+
+    def _resume(self):
+        """ Resumes playback if possible.
+
+            Returns: (bool) New paused status:
+        """
+        if self.process:
+            # Resume the playback process
+            self.process.send_signal(signal.SIGCONT)
+            return False  # After resume the service is no longer paused
+        else:
+            return True
 
     def resume(self):
-        pass
+        if self._paused:
+            # Resume the playback process
+            self._paused = self._resume()
 
     def next(self):
         # Terminate process to continue to next
-        self.process.terminate()
+        self._stop_running_process()
 
     def previous(self):
         pass
 
     def lower_volume(self):
-        pass
+        if not self._paused:
+            self._pause()  # poor-man's ducking
 
     def restore_volume(self):
-        pass
+        if not self._paused:
+            self._resume()  # poor-man's unducking
+
+    def _is_process_running(self):
+        return self.process and self.process.poll() is None
+
+    def _stop_running_process(self):
+        if self._is_process_running():
+            if self._paused:
+                # The child process must be "unpaused" in order to be stopped
+                self._resume()
+            self.process.terminate()
+            countdown = 10
+            while self._is_process_running() and countdown > 0:
+                sleep(0.1)
+                countdown -= 1
+
+            if self._is_process_running():
+                # Failed to shutdown when asked nicely.  Force the issue.
+                LOG.debug("Killing currently playing audio...")
+                self.process.kill()
+        self.process = None
 
 
 def load_service(base_config, bus):

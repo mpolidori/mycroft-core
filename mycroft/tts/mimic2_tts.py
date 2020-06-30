@@ -13,11 +13,11 @@
 # limitations under the License.
 #
 
-from mycroft.tts import TTS, TTSValidator
-from mycroft.tts.remote_tts import RemoteTTSTimeoutException
+from .tts import TTS, TTSValidator
+from .remote_tts import RemoteTTSException, RemoteTTSTimeoutException
 from mycroft.util.log import LOG
-from mycroft.util.format import pronounce_number
-from mycroft.util import play_wav, get_cache_directory, create_signal
+from mycroft.tts import cache_handler
+from mycroft.util import get_cache_directory
 from requests_futures.sessions import FuturesSession
 from requests.exceptions import (
     ReadTimeout, ConnectionError, ConnectTimeout, HTTPError
@@ -27,23 +27,30 @@ from .mimic_tts import VISIMES
 import math
 import base64
 import os
-import hashlib
 import re
+import json
 
 
-max_sentence_size = 170
+# Heuristic value, caps character length of a chunk of text to be spoken as a
+# work around for current Mimic2 implementation limits.
+_max_sentence_size = 170
 
 
-def break_chunks(l, n):
-    """Yield successive n-sized chunks from l."""
+def _break_chunks(l, n):
+    """Yield successive n-sized chunks
+
+    Arguments:
+        l (list): text (str) to split
+        chunk_size (int): chunk size
+    """
     for i in range(0, len(l), n):
         yield " ".join(l[i:i + n])
 
 
-def split_by_chunk_size(text, chunk_size):
-    """split text into word chunks by chunk_size size
+def _split_by_chunk_size(text, chunk_size):
+    """Split text into word chunks by chunk_size size
 
-    Args:
+    Arguments:
         text (str): text to split
         chunk_size (int): chunk size
 
@@ -56,69 +63,73 @@ def split_by_chunk_size(text, chunk_size):
         return [text]
 
     if chunk_size < len(text_list) < (chunk_size * 2):
-        return list(break_chunks(
+        return list(_break_chunks(
             text_list,
             int(math.ceil(len(text_list) / 2))
         ))
     elif (chunk_size * 2) < len(text_list) < (chunk_size * 3):
-        return list(break_chunks(
+        return list(_break_chunks(
             text_list,
             int(math.ceil(len(text_list) / 3))
         ))
     elif (chunk_size * 3) < len(text_list) < (chunk_size * 4):
-        return list(break_chunks(
+        return list(_break_chunks(
             text_list,
             int(math.ceil(len(text_list) / 4))
         ))
     else:
-        return list(break_chunks(
+        return list(_break_chunks(
             text_list,
             int(math.ceil(len(text_list) / 5))
         ))
 
 
-def split_by_punctuation(text, puncs):
-    """splits text by various punctionations
+def _split_by_punctuation(chunks, puncs):
+    """Splits text by various punctionations
     e.g. hello, world => [hello, world]
 
-    Args:
-        text (str): text to split
+    Arguments:
+        chunks (list or str): text (str) to split
         puncs (list): list of punctuations used to split text
 
     Returns:
         list: list with split text
     """
-    splits = text.split()
-    split_by_punc = False
-    for punc in puncs:
-        if punc in text:
-            splits = text.split(punc)
-            split_by_punc = True
-            break
-    if split_by_punc:
-        return splits
+    if isinstance(chunks, str):
+        out = [chunks]
     else:
-        return [text]
+        out = chunks
+
+    for punc in puncs:
+        splits = []
+        for t in out:
+            # Split text by punctuation, but not embedded punctuation.  E.g.
+            # Split:  "Short sentence.  Longer sentence."
+            # But not at: "I.B.M." or "3.424", "3,424" or "what's-his-name."
+            splits += re.split(r'(?<!\.\S)' + punc + r'\s', t)
+        out = splits
+    return [t.strip() for t in out]
 
 
-def add_punctuation(text):
-    """add punctuation at the end of each chunk. Mimic2
-    expects some form of punctuations
+def _add_punctuation(text):
+    """Add punctuation at the end of each chunk.
+
+    Mimic2 expects some form of punctuation at the end of a sentence.
     """
-    punctuations = ['.', '?', '!']
-    if len(text) < 1:
+    punctuation = ['.', '?', '!', ';']
+    if len(text) >= 1 and text[-1] not in punctuation:
+        return text + '.'
+    else:
         return text
-    if text[-1] not in punctuations:
-        text += '.'
-    return text
 
 
-def sentence_chunker(text, chunk_size, split_by_punc=True):
-    """split sentences into chunks. if split_by_punc is True,
-        sentences will be split into chunks by punctuations first
-        then those chunks will be split by chunk size
+def _sentence_chunker(text):
+    """Split text into smaller chunks for TTS generation.
 
-    Args:
+    NOTE: The smaller chunks are needed due to current Mimic2 TTS limitations.
+    This stage can be removed once Mimic2 can generate longer sentences.
+
+    Arguments:
         text (str): text to split
         chunk_size (int): size of each chunk
         split_by_punc (bool, optional): Defaults to True.
@@ -126,108 +137,68 @@ def sentence_chunker(text, chunk_size, split_by_punc=True):
     Returns:
         list: list of text chunks
     """
-    if len(text) <= max_sentence_size:
-        return [add_punctuation(text)]
+    if len(text) <= _max_sentence_size:
+        return [_add_punctuation(text)]
 
-    # split text by punctuations if split_by_punc set to true
-    chunks = None
-    if split_by_punc:
-        # first split by "ending" punctuations
-        chunks = split_by_punctuation(
-            text.strip(),
-            puncs=['.', '!', '?', ':', '-', ';']
-        )
+    # first split by punctuations that are major pauses
+    first_splits = _split_by_punctuation(
+        text,
+        puncs=[r'\.', r'\!', r'\?', r'\:', r'\;']
+    )
 
-        # if sentence is still to big, split by commas
-        second_splits = []
-        did_second_split = False
-        for sentence in chunks:
-            if len(sentence) > max_sentence_size:
-                comma_splits = split_by_punctuation(
-                    sentence.strip(), puncs=[',']
-                )
-                second_splits += comma_splits
-                did_second_split = True
-            else:
-                second_splits.append(sentence.strip())
+    # if chunks are too big, split by minor pauses (comma, hyphen)
+    second_splits = []
+    for chunk in first_splits:
+        if len(chunk) > _max_sentence_size:
+            second_splits += _split_by_punctuation(chunk,
+                                                   puncs=[r'\,', '--', '-'])
+        else:
+            second_splits.append(chunk)
 
-        if did_second_split:
-            chunks = second_splits
+    # if chunks are still too big, chop into pieces of at most 20 words
+    third_splits = []
+    for chunk in second_splits:
+        if len(chunk) > _max_sentence_size:
+            third_splits += _split_by_chunk_size(chunk, 20)
+        else:
+            third_splits.append(chunk)
 
-        # if sentence is still to big by 20 word chunks
-        third_splits = []
-        did_third_split = False
-        for sentence in chunks:
-            if len(sentence) > max_sentence_size:
-                chunk_split = split_by_chunk_size(sentence.strip(), 20)
-                third_splits += chunk_split
-                did_third_split = True
-            else:
-                third_splits.append(sentence.strip())
-
-        if did_third_split:
-            chunks = third_splits
-
-        chunks = [add_punctuation(chunk) for chunk in chunks]
-        return chunks
+    return [_add_punctuation(chunk) for chunk in third_splits]
 
 
 class Mimic2(TTS):
-
+    """Interface to the Mimic2 TTS."""
     def __init__(self, lang, config):
         super(Mimic2, self).__init__(
             lang, config, Mimic2Validator(self)
         )
+        try:
+            LOG.info("Getting Pre-loaded cache")
+            cache_handler.main(config['preloaded_cache'])
+            LOG.info("Successfully downloaded Pre-loaded cache")
+        except Exception as e:
+            LOG.error("Could not get the pre-loaded cache ({})"
+                      .format(repr(e)))
         self.url = config['url']
         self.session = FuturesSession()
-        chunk_size = config.get('chunk_size')
-        self.chunk_size = \
-            chunk_size if chunk_size is not None else 10
 
-    def _save(self, data):
-        """saves .wav files in tmp
+    def _requests(self, sentence):
+        """Create asynchronous request list
 
-        Args:
-            data (byes): wav data
-        """
-        with open(self.filename, 'wb') as f:
-            f.write(data)
-
-    def _play(self, req):
-        """play wav file after saving to tmp
-
-        Args:
-            req (object): requests object
-        """
-        if req.status_code == 200:
-            self._save(req.content)
-            play_wav(self.filename).communicate()
-        else:
-            LOG.error(
-                '%s Http Error: %s for url: %s' %
-                (req.status_code, req.reason, req.url))
-
-    def _requests(self, chunks):
-        """create asynchronous request list
-
-        Args:
+        Arguments:
             chunks (list): list of text to synthesize
 
         Returns:
             list: list of FutureSession objects
         """
-        reqs = []
-        for chunk in chunks:
-            if len(chunk) > 0:
-                url = self.url + parse.quote(chunk)
-                req_route = url + "&visimes=True"
-                reqs.append(self.session.get(req_route, timeout=5))
-        return reqs
+        url = self.url + parse.quote(sentence)
+        req_route = url + "&visimes=True"
+        return self.session.get(req_route, timeout=5)
 
-    def visime(self, phonemes):
-        """maps phonemes to visemes encoding
+    def viseme(self, phonemes):
+        """Maps phonemes to appropriate viseme encoding
 
-        Args:
+        Arguments:
             phonemes (list): list of tuples (phoneme, time_start)
 
         Returns:
@@ -247,64 +218,65 @@ class Mimic2(TTS):
             visemes.append((vis, vis_dur))
         return visemes
 
-    def _normalized_numbers(self, sentence):
-        """normalized numbers to word equivalent.
+    def _preprocess_sentence(self, sentence):
+        """Split sentence in chunks better suited for mimic2. """
+        return _sentence_chunker(sentence)
 
-        Args:
-            sentence (str): setence to speak
+    def get_tts(self, sentence, wav_file):
+        """Generate (remotely) and play mimic2 WAV audio
 
-        Returns:
-            stf: normalized sentences to speak
+        Arguments:
+            sentence (str): Phrase to synthesize to audio with mimic2
+            wav_file (str): Location to write audio output
         """
+        LOG.debug("Generating Mimic2 TSS for: " + str(sentence))
         try:
-            numbers = re.findall(r'\d+', sentence)
-            normalized_num = [
-                (num, pronounce_number(int(num)))
-                for num in numbers
-            ]
-            for num, norm_num in normalized_num:
-                sentence = sentence.replace(num, norm_num, 1)
-        except TypeError:
-            LOG.exception("type error in mimic2_tts.py _normalized_numbers()")
-        return sentence
-
-    def execute(self, sentence, ident=None):
-        """request and play mimic2 wav audio
-
-        Args:
-            sentence (str): sentence to synthesize from mimic2
-            ident (optional): Defaults to None.
-        """
-        create_signal("isSpeaking")
-
-        sentence = self._normalized_numbers(sentence)
-
-        # Use the phonetic_spelling mechanism from the TTS base class
-        if self.phonetic_spelling:
-            for word in re.findall(r"[\w']+", sentence):
-                if word.lower() in self.spellings:
-                    sentence = sentence.replace(word,
-                                                self.spellings[word.lower()])
-
-        chunks = sentence_chunker(sentence, self.chunk_size)
-        try:
-            for idx, req in enumerate(self._requests(chunks)):
-                results = req.result().json()
+            res = self._requests(sentence).result()
+            if 200 <= res.status_code < 300:
+                results = res.json()
                 audio = base64.b64decode(results['audio_base64'])
-                vis = self.visime(results['visimes'])
-                key = str(hashlib.md5(
-                    chunks[idx].encode('utf-8', 'ignore')).hexdigest())
-                wav_file = os.path.join(
-                    get_cache_directory("tts"),
-                    key + '.' + self.audio_ext
-                )
+                vis = results['visimes']
                 with open(wav_file, 'wb') as f:
                     f.write(audio)
-                self.queue.put((self.audio_ext, wav_file, vis, ident))
+            else:
+                raise RemoteTTSException('Backend returned HTTP status '
+                                         '{}'.format(res.status_code))
         except (ReadTimeout, ConnectionError, ConnectTimeout, HTTPError):
             raise RemoteTTSTimeoutException(
-                "Mimic 2 remote server request timedout. falling back to mimic"
-            )
+                "Mimic 2 server request timed out. Falling back to mimic")
+        return (wav_file, vis)
+
+    def save_phonemes(self, key, phonemes):
+        """Cache phonemes
+
+        Arguments:
+            key:        Hash key for the sentence
+            phonemes:   phoneme string to save
+        """
+        cache_dir = get_cache_directory("tts/" + self.tts_name)
+        pho_file = os.path.join(cache_dir, key + ".pho")
+        try:
+            with open(pho_file, "w") as cachefile:
+                cachefile.write(json.dumps(phonemes))
+        except Exception:
+            LOG.exception("Failed to write {} to cache".format(pho_file))
+
+    def load_phonemes(self, key):
+        """Load phonemes from cache file.
+
+        Arguments:
+            Key:    Key identifying phoneme cache
+        """
+        pho_file = os.path.join(get_cache_directory("tts/" + self.tts_name),
+                                key + ".pho")
+        if os.path.exists(pho_file):
+            try:
+                with open(pho_file, "r") as cachefile:
+                    phonemes = json.load(cachefile)
+                return phonemes
+            except Exception as e:
+                LOG.error("Failed to read .PHO from cache ({})".format(e))
+        return None
 
 
 class Mimic2Validator(TTSValidator):

@@ -17,12 +17,12 @@ from mimetypes import guess_type
 
 import pychromecast
 
-from mycroft.audio.services import AudioBackend
+from mycroft.audio.services import RemoteAudioBackend
 from mycroft.messagebus.message import Message
 from mycroft.util.log import LOG
 
 
-class ChromecastService(AudioBackend):
+class ChromecastService(RemoteAudioBackend):
     """
         Audio backend for playback on chromecast. Using the default media
         playback controller included in pychromecast.
@@ -89,14 +89,18 @@ class ChromecastService(AudioBackend):
 
         TODO: add playlist support and repeat
         """
+        self.cast.wait()  # Make sure the device is ready to receive command
         self.cast.quit_app()
+        while self.cast.status.status_text != '':
+            time.sleep(1)
 
         track = self.tracklist[0]
         # Report start of playback to audioservice
         if self._track_start_callback:
             self._track_start_callback(track)
-        LOG.debug('track: {}, type: {}'.format(track, guess_type(track)))
+        LOG.debug('track: {}, type: {}'.format(track, guess_type(track)[0]))
         mime = guess_type(track)[0] or 'audio/mp3'
+        self.cast.wait()  # Make sure the device is ready to receive command
         self.cast.play_media(track, mime)
 
     def stop(self):

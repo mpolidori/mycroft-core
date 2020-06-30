@@ -15,15 +15,14 @@
 from abc import ABCMeta, abstractmethod
 
 
-class AudioBackend():
+class AudioBackend(metaclass=ABCMeta):
     """
         Base class for all audio backend implementations.
 
         Args:
             config: configuration dict for the instance
-            bus:    mycroft messagebus emitter
+            bus:    Mycroft messagebus emitter
     """
-    __metaclass__ = ABCMeta
 
     def __init__(self, config, bus):
         self._track_start_callback = None
@@ -115,6 +114,24 @@ class AudioBackend():
         """
         pass
 
+    def seek_forward(self, seconds=1):
+        """
+            Skip X seconds
+
+            Args:
+                seconds (int): number of seconds to seek, if negative rewind
+        """
+        pass
+
+    def seek_backward(self, seconds=1):
+        """
+            Rewind X seconds
+
+            Args:
+                seconds (int): number of seconds to seek, if negative rewind
+        """
+        pass
+
     def track_info(self):
         """
             Fetch info about current playing track.
@@ -128,5 +145,13 @@ class AudioBackend():
         return ret
 
     def shutdown(self):
-        """ perform clean shutdown """
+        """ Perform clean shutdown """
         self.stop()
+
+
+class RemoteAudioBackend(AudioBackend):
+    """ Base class for remote audio backends.
+
+        These may be things like Chromecasts, mopidy servers, etc.
+    """
+    pass
